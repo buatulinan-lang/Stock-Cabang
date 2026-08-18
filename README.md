@@ -60,5 +60,16 @@ Panel **Validasi pembacaan file** menampilkan per file: jumlah baris, baris non-
 yang dibuang, dan total nilai stok terbaca — cocokkan dengan total di file asli sebelum
 memakai angkanya. Sheet `Validasi` juga ikut di hasil export Excel.
 
+## File gabungan (satu file untuk semua cabang)
+`gabung.py` menggabungkan 18 export cabang jadi satu CSV berkolom `Cabang` + `Kategori Budget`:
+
+```bash
+python gabung.py <folder_berisi_export> stok_gabungan.csv
+```
+
+App otomatis mengenali file yang punya kolom `Cabang` (termasuk `.csv.gz`) — tidak perlu
+memilih cabang per file. Versi terkompresi `data/stok_gabungan.csv.gz` sudah disertakan
+(±2 MB, dari 16 MB) supaya ringan di repo GitHub.
+
 ## Alias nama cabang
 Edit `ALIAS_CABANG` di `logic.py` (huruf kecil tanpa spasi), mis. `"telukjambe": "KARAWANG"`.

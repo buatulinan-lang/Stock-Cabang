@@ -29,6 +29,8 @@ def load_budget():
 # Kunci ditulis tanpa spasi/underscore, huruf kecil.
 ALIAS_CABANG = {
     "telukjambe": "KARAWANG",
+    "telukj": "KARAWANG",   # kode cabang terpotong pada nama file export
+    "tlkj": "KARAWANG",
     "tlkjambe": "KARAWANG",
     "karawang": "KARAWANG",
     "klender": "KLENDER",
@@ -108,9 +110,11 @@ def cari_kolom(cols, kata_kunci):
 def baca_tabel(file_bytes, nama_file):
     """Baca Excel/CSV, cari baris header otomatis."""
     kunci = KATA_KATEGORI + KATA_QTY + KATA_HPP + KATA_NILAI + KATA_ITEM
-    if nama_file.lower().endswith((".csv", ".txt")):
+    low = nama_file.lower()
+    if low.endswith((".csv", ".txt", ".csv.gz", ".txt.gz")):
+        komp = "gzip" if low.endswith(".gz") else None
         mentah = pd.read_csv(io.BytesIO(file_bytes), header=None, dtype=object,
-                             sep=None, engine="python")
+                             sep=None, engine="python", compression=komp)
     else:
         mentah = pd.read_excel(io.BytesIO(file_bytes), header=None, dtype=object)
 
@@ -163,15 +167,35 @@ def tebak_kategori(nilai):
     return LAINNYA
 
 
-def ke_angka(seri):
-    """Ubah kolom jadi numerik.
+def _tail_len(v):
+    v = str(v)
+    return len(v) - v.rfind(".") - 1 if "." in v else None
 
-    Nilai yang sudah numerik (hasil baca Excel) dipakai apa adanya — tidak
-    di-parse ulang sebagai teks, supaya desimal seperti 253390.625 tidak
-    salah dibaca sebagai pemisah ribuan.
+
+def ke_angka(seri):
+    """Ubah kolom jadi numerik, aman untuk format Indonesia maupun desimal titik.
+
+    Urutan:
+    1. Nilai yang sudah numerik (Excel) dipakai apa adanya.
+    2. Teks yang seluruhnya angka-titik (mis. dari CSV: 253390.625) dibaca sebagai
+       desimal, KECUALI semua nilai bertitik berekor tepat 3 digit -> itu pola
+       pemisah ribuan Indonesia (14.000).
+    3. Sisanya di-parse per elemen (1.234.567,89 / 1,234,567.89).
     """
     if seri is None:
         return None
+    if pd.api.types.is_numeric_dtype(seri):
+        return pd.to_numeric(seri, errors="coerce").fillna(0).astype(float)
+
+    teks = seri.astype(str).str.strip()
+    if not teks.str.contains(",").any():
+        num = pd.to_numeric(teks, errors="coerce")
+        if num.notna().mean() >= 0.9:
+            ekor = [t for t in teks[teks.str.contains(r"\.", regex=True)].map(_tail_len)
+                    if t is not None]
+            ambigu = bool(ekor) and all(e == 3 for e in ekor)
+            if not ambigu:
+                return num.fillna(0).astype(float)
 
     def satu(v):
         if v is None or (isinstance(v, float) and v != v):
@@ -192,7 +216,7 @@ def ke_angka(seri):
             ekor = len(v) - pos_titik - 1
             if "," not in v and ekor == 3:          # 1.234.567 -> pemisah ribuan
                 v = v.replace(".", "")
-            else:                                   # 1,234,567.89
+            else:
                 v = v.replace(",", "")
         else:
             v = v.replace(",", "").replace(".", "")

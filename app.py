@@ -19,7 +19,7 @@ from logic import (
 st.set_page_config(page_title="Cek Stok vs Budget — MFlash", page_icon="📦", layout="wide")
 BASE = Path(__file__).parent
 DATA_DIR = BASE / "data"
-EKSTENSI = (".xlsx", ".xls", ".csv")
+EKSTENSI = (".xlsx", ".xls", ".csv", ".gz")
 
 budget_df = st.cache_data(load_budget)()
 daftar_cabang = sorted(budget_df["Cabang"].unique())
@@ -124,16 +124,30 @@ kol_jenis = st.selectbox(
 )
 
 # ------------------------------------------------------------ cabang per file
-st.subheader("Cabang per file")
+def kolom_cabang(df):
+    """File gabungan sudah punya kolom Cabang -> tidak perlu ditebak dari nama file."""
+    for c in df.columns:
+        if str(c).strip().lower() == "cabang":
+            return c
+    return None
+
+
+st.subheader("Cabang")
 pilihan = {}
-for nama in tabel:
+gabungan = {n: kolom_cabang(d) for n, d in tabel.items()}
+for nama, df in tabel.items():
     k = st.columns([3, 2, 1])
     k[0].write(f"`{nama}`")
-    tebakan = tebak_cabang(nama, daftar_cabang)
-    pilihan[nama] = k[1].selectbox(
-        "cabang", ["(lewati)"] + daftar_cabang,
-        index=daftar_cabang.index(tebakan) + 1 if tebakan else 0,
-        key=f"cab_{nama}", label_visibility="collapsed")
+    if gabungan[nama]:
+        n_cab = df[gabungan[nama]].nunique()
+        k[1].success(f"file gabungan — {n_cab} cabang dari kolom `{gabungan[nama]}`")
+        pilihan[nama] = "(dari kolom)"
+    else:
+        tebakan = tebak_cabang(nama, daftar_cabang)
+        pilihan[nama] = k[1].selectbox(
+            "cabang", ["(lewati)"] + daftar_cabang,
+            index=daftar_cabang.index(tebakan) + 1 if tebakan else 0,
+            key=f"cab_{nama}", label_visibility="collapsed")
     k[2].caption(sumber[nama][0])
 
 # ------------------------------------------------------------------ olah data
@@ -142,7 +156,9 @@ for nama, df in tabel.items():
     cab = pilihan[nama]
     if cab == "(lewati)":
         continue
-    d = pd.DataFrame({"Cabang": cab, "KategoriAsli": df[kol_kat].astype(str).str.strip()})
+    kol_cab = gabungan[nama]
+    seri_cab = (df[kol_cab].astype(str).str.strip().str.upper() if kol_cab else cab)
+    d = pd.DataFrame({"Cabang": seri_cab, "KategoriAsli": df[kol_kat].astype(str).str.strip()})
     total_baris = len(d)
     if kol_nilai:
         d["NilaiStok"] = ke_angka(df[kol_nilai])
@@ -158,7 +174,9 @@ for nama, df in tabel.items():
         d = d[masuk.values]
     d["File"] = nama
     bagian.append(d)
-    catatan.append({"File": nama, "Cabang": cab, "Baris": total_baris,
+    catatan.append({"File": nama,
+                    "Cabang": f"{d['Cabang'].nunique()} cabang" if kol_cab else cab,
+                    "Baris": total_baris,
                     "Baris non-Inventory dibuang": dibuang,
                     "Nilai stok terbaca": d["NilaiStok"].sum()})
 
@@ -183,7 +201,11 @@ with st.expander(f"Pemetaan kategori ({len(kat_unik)} kategori sistem)", expande
 stok["Kategori"] = stok["KategoriAsli"].map(peta)
 stok = stok[stok["Kategori"] != "(abaikan)"]
 
-cabang_aktif = [c for c in pilihan.values() if c != "(lewati)"]
+cabang_aktif = sorted(set(stok["Cabang"]) & set(daftar_cabang))
+tak_dikenal = sorted(set(stok["Cabang"]) - set(daftar_cabang))
+if tak_dikenal:
+    st.warning(f"Nama cabang tidak ada di master budget, diabaikan: {', '.join(tak_dikenal)}")
+    stok = stok[stok["Cabang"].isin(cabang_aktif)]
 hasil = bandingkan(stok, budget_df, cabang_aktif, toleransi)
 
 # --------------------------------------------------------------- validasi
