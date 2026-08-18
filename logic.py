@@ -78,10 +78,17 @@ def tebak_cabang(nama_file, daftar_cabang):
 # ----------------------------------------------------------------------------
 # Deteksi kolom & kategori
 # ----------------------------------------------------------------------------
-KATA_KATEGORI = ["kategori", "katagori", "jenis", "grup", "group", "klasifikasi", "tipe barang"]
-KATA_QTY = ["qty", "quantity", "jumlah", "stok", "stock", "saldo", "sisa"]
-KATA_HPP = ["harga beli", "hpp", "harga pokok", "modal", "cost", "beli"]
-KATA_NILAI = ["nilai", "total", "subtotal", "jumlah harga", "amount", "value"]
+KATA_KATEGORI = ["kategori barang", "kategori", "katagori", "jenis", "grup", "group",
+                 "klasifikasi"]
+KATA_QTY = ["kts (semua gdng)", "kts", "qty", "quantity", "kuantitas", "jumlah", "stok",
+            "stock", "saldo", "sisa"]
+# kolom harga SATUAN (harus dikali qty)
+KATA_HPP = ["nilai satuan", "harga satuan", "harga beli", "hpp", "harga pokok", "modal",
+            "cost", "beli"]
+# kolom yang SUDAH berupa nilai total (JANGAN dikali qty lagi)
+KATA_NILAI = ["nilai total", "nilai persediaan", "total nilai", "subtotal", "jumlah harga",
+              "amount", "value", "nilai"]
+KATA_JENIS = ["jenis barang", "jenis item", "tipe barang", "item type"]
 KATA_ITEM = ["nama barang", "item", "produk", "deskripsi", "barang", "sku"]
 
 
@@ -123,50 +130,70 @@ def baca_tabel(file_bytes, nama_file):
     return df
 
 
+LAINNYA = "Lainnya"
+
+# Kategori sistem yang identik dengan kategori budget.
+PADANAN_PERSIS = {
+    "aksesoris": "Aksesoris", "accessories": "Aksesoris", "asesoris": "Aksesoris",
+    "handphone": "Handphone", "hp": "Handphone", "smartphone": "Handphone",
+    "laptop": "Laptop", "notebook": "Laptop",
+    "sparepart": "Sparepart", "spare part": "Sparepart", "spare-part": "Sparepart",
+}
+
+# Dipakai hanya bila tidak ada padanan persis. Sengaja konservatif: kata kunci
+# tingkat produk (lcd, baterai, casing, dst) TIDAK dipakai supaya kategori sistem
+# yang tidak dikenal jatuh ke "Lainnya", bukan salah masuk kategori berbudget.
 ATURAN_KATEGORI = [
-    ("Aksesoris", ["aksesoris", "accessories", "asesoris", "casing", "case", "charger",
-                   "kabel", "headset", "tempered", "anti gores", "antigores", "powerbank",
-                   "power bank", "adaptor", "holder", "earphone", "softcase", "hardcase"]),
-    ("Sparepart", ["sparepart", "spare part", "spare-part", "part", "lcd", "baterai",
-                   "battery", "board", "konektor", "connector", "flexible", "fleksibel",
-                   "mesin", "modul", "ic ", "touchscreen", "keyboard"]),
-    ("Laptop", ["laptop", "notebook", "netbook", "macbook", "komputer", "pc "]),
-    ("Handphone", ["handphone", "hand phone", "smartphone", "ponsel", "phone", "tablet",
-                   "hape", "hp ", " hp"]),
+    ("Aksesoris", ["aksesoris", "accessories", "asesoris"]),
+    ("Sparepart", ["sparepart", "spare part", "spare-part"]),
+    ("Laptop", ["laptop", "notebook", "netbook", "macbook"]),
+    ("Handphone", ["handphone", "hand phone", "smartphone", "ponsel", "hape"]),
 ]
 
 
 def tebak_kategori(nilai):
-    v = f" {str(nilai).lower().strip()} "
+    """Kategori sistem -> kategori budget. Yang tak dikenal masuk 'Lainnya' (tanpa budget)."""
+    v = str(nilai).strip().lower()
+    if v in PADANAN_PERSIS:
+        return PADANAN_PERSIS[v]
     for target, kata in ATURAN_KATEGORI:
         for k in kata:
             if k in v:
                 return target
-    return "(belum dipetakan)"
+    return LAINNYA
 
 
 def ke_angka(seri):
-    """Ubah teks angka (format Indonesia maupun internasional) jadi numerik."""
+    """Ubah kolom jadi numerik.
+
+    Nilai yang sudah numerik (hasil baca Excel) dipakai apa adanya — tidak
+    di-parse ulang sebagai teks, supaya desimal seperti 253390.625 tidak
+    salah dibaca sebagai pemisah ribuan.
+    """
     if seri is None:
         return None
-    s = seri.astype(str).str.replace(r"[^\d,.\-]", "", regex=True).str.strip()
 
     def satu(v):
-        if not isinstance(v, str):
+        if v is None or (isinstance(v, float) and v != v):
             return 0.0
-        if v in ("", "-", "nan", "None"):
+        if isinstance(v, bool):
+            return 0.0
+        if isinstance(v, (int, float)):
+            return float(v)
+        v = re.sub(r"[^\d,.\-]", "", str(v)).strip()
+        if v in ("", "-", "."):
             return 0.0
         neg = v.startswith("-")
         v = v.lstrip("-")
         pos_koma, pos_titik = v.rfind(","), v.rfind(".")
-        if pos_koma > pos_titik:            # 1.234.567,89 -> koma = desimal
+        if pos_koma > pos_titik:                    # 1.234.567,89 -> koma desimal
             v = v.replace(".", "").replace(",", ".")
         elif pos_titik > pos_koma:
             ekor = len(v) - pos_titik - 1
-            if ekor == 3 and v.count(".") >= 1 and "," not in v:
-                v = v.replace(".", "")      # 1.234.567 -> pemisah ribuan
-            else:
-                v = v.replace(",", "")      # 1,234,567.89
+            if "," not in v and ekor == 3:          # 1.234.567 -> pemisah ribuan
+                v = v.replace(".", "")
+            else:                                   # 1,234,567.89
+                v = v.replace(",", "")
         else:
             v = v.replace(",", "").replace(".", "")
         try:
@@ -175,7 +202,7 @@ def ke_angka(seri):
             return 0.0
         return -x if neg else x
 
-    return s.map(satu).astype(float)
+    return seri.map(satu).astype(float)
 
 
 def fmt_rp(x):
@@ -199,13 +226,25 @@ def hitung_status(row, toleransi):
 
 
 def bandingkan(stok_valid, budget_df, cabang_aktif, toleransi=5):
-    """stok_valid: kolom Cabang, Kategori, NilaiStok, Qty, KategoriAsli."""
+    """Gabungkan realisasi stok dengan budget.
+
+    stok_valid: kolom Cabang, Kategori, NilaiStok, Qty, KategoriAsli.
+    Kategori di luar 4 kategori berbudget tetap ikut, dengan Budget = 0 dan
+    status "Tanpa budget", supaya total nilai stok di ringkasan tetap utuh.
+    """
     agg = stok_valid.groupby(["Cabang", "Kategori"], as_index=False).agg(
         NilaiStok=("NilaiStok", "sum"), Qty=("Qty", "sum"), Item=("KategoriAsli", "size"))
-    hasil = budget_df[budget_df["Cabang"].isin(cabang_aktif)].merge(
-        agg, on=["Cabang", "Kategori"], how="left")
-    hasil[["NilaiStok", "Qty", "Item"]] = hasil[["NilaiStok", "Qty", "Item"]].fillna(0)
+    kerangka = budget_df[budget_df["Cabang"].isin(cabang_aktif)]
+    hasil = kerangka.merge(agg, on=["Cabang", "Kategori"], how="outer")
+    hasil = hasil[hasil["Cabang"].isin(cabang_aktif)]
+    hasil[["Budget", "NilaiStok", "Qty", "Item"]] = hasil[
+        ["Budget", "NilaiStok", "Qty", "Item"]].fillna(0)
     hasil["Selisih"] = hasil["NilaiStok"] - hasil["Budget"]
-    hasil["Serapan %"] = (hasil["NilaiStok"] / hasil["Budget"] * 100).round(1)
+    aman = hasil["Budget"].where(hasil["Budget"] != 0)
+    hasil["Serapan %"] = (hasil["NilaiStok"] / aman * 100).round(1)
     hasil["Status"] = hasil.apply(lambda r: hitung_status(r, toleransi), axis=1)
+    urut = {k: i for i, k in enumerate(KATEGORI_BUDGET + [LAINNYA])}
+    hasil = hasil.sort_values(
+        ["Cabang", "Kategori"], key=lambda c: c.map(urut) if c.name == "Kategori" else c
+    ).reset_index(drop=True)
     return hasil

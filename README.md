@@ -1,43 +1,64 @@
 # Dashboard Cek Stok vs Budget Purchasing — MFlash
 
-Membandingkan **nilai stok aktual (HPP)** tiap cabang & kategori terhadap **master budget purchasing**
-(18 cabang × 4 kategori, total Rp 6.919.262.000), lalu menandai status **Kurang / Sesuai / Over**.
+Membandingkan **nilai stok aktual** tiap cabang & kategori terhadap **master budget purchasing**
+(18 cabang × 4 kategori, total Rp 6.919.262.000), lalu menandai **Kurang / Sesuai / Over**.
 
 ## Isi
 - `app.py` — antarmuka Streamlit
 - `logic.py` — logika inti (parsing file, deteksi cabang, pemetaan kategori, perbandingan)
 - `budget_master.json` — master budget hasil ekstraksi dari *Master Budget Purchasing MFlash.xlsx*
-- `test_logic.py` — uji otomatis logika inti
+- `data/` — **taruh file stok cabang di sini** lalu push ke GitHub; dashboard membacanya otomatis
+- `test_logic.py`, `test_warbong.py` — uji otomatis logika inti
 - `requirements.txt`
 
-## Menjalankan lokal
+## Menjalankan
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
 ```
 
-## Deploy ke Streamlit Cloud
-Push seluruh folder ke repo GitHub, lalu buat app baru dengan main file `app.py`.
+## Alur pemakaian (data permanen di GitHub)
+1. Salin file stok 18 cabang ke folder `data/`, commit & push.
+2. Deploy repo ke Streamlit Cloud dengan main file `app.py`. Dashboard langsung membaca `data/`.
+3. Ganti periode = ganti isi `data/` lalu push. Upload manual di sidebar tetap tersedia untuk
+   cek cepat tanpa mengubah repo.
 
-## Cara pakai
-1. Upload 18 file stok cabang (Excel/CSV) sekaligus di panel kiri.
-2. Cek **pemetaan kolom** — kolom kategori, qty, dan harga beli dideteksi otomatis dari file pertama.
-3. Cek **cabang per file** — cabang ditebak dari nama file; `TELUK JAMBE` otomatis dibaca `KARAWANG`.
-4. Buka panel **pemetaan kategori** untuk memastikan semua kategori di file jatuh ke 4 kategori budget.
-   Kategori yang tidak terpetakan akan diperingatkan beserta nilainya, jadi tidak ada nilai yang hilang diam-diam.
-5. Baca ringkasan, tab Per Cabang / Per Kategori / Detail, lalu download hasil Excel multi-sheet.
+## Format file yang didukung
+Export **Daftar Barang dan Jasa** dikenali otomatis:
+
+| Kolom di file        | Dipakai sebagai            |
+|----------------------|----------------------------|
+| `Kategori Barang`    | kategori                   |
+| `Kts (Semua Gdng)`   | qty                        |
+| `Nilai Satuan`       | harga satuan (HPP)         |
+| `Nilai Total`        | **nilai stok** (default)   |
+| `Jenis Barang`       | filter `Inventory`         |
+
+⚠️ **Penting — jangan gandakan nilai.** `Nilai Total` sudah = qty × harga satuan.
+Bila kolom itu dikalikan qty lagi, nilai stok menggelembung (contoh WARBONG:
+Rp 384.002.787 menjadi Rp 1.407.799.604). Karena itu mode default adalah
+*Pakai kolom nilai total*, dan app menolak/memperingatkan bila kolom bernama "total"
+dipilih sebagai harga satuan.
+
+## Kategori
+Empat kategori berbudget: Aksesoris, Handphone, Laptop, Sparepart.
+Kategori sistem lain (ELEKTRONIK, PARFUM, CCTV, KARTU PERDANA, ASET, JASA, SEWA, dst.)
+masuk kategori **Lainnya** — tetap dihitung di total nilai stok, tanpa budget pembanding.
+Pemetaan bisa diubah manual di panel *Pemetaan kategori*.
+
+## Filter Inventory
+Baris `Service` dan `Non Inventory` bukan persediaan dan dikeluarkan dari nilai stok
+(bisa dimatikan di sidebar).
 
 ## Aturan status
 Selisih = Nilai Stok − Budget. Dengan toleransi *t* % (default 5):
-- Selisih > +t% → **Over**
-- Selisih < −t% → **Kurang**
-- selebihnya → **Sesuai**
+Selisih > +t% → **Over**; < −t% → **Kurang**; selebihnya → **Sesuai**;
+kategori tanpa budget → **Tanpa budget**.
 
-Cabang yang filenya tidak diupload tetap muncul dengan nilai stok 0 (status Kurang), supaya kekurangan data terlihat.
+## Kontrol audit
+Panel **Validasi pembacaan file** menampilkan per file: jumlah baris, baris non-Inventory
+yang dibuang, dan total nilai stok terbaca — cocokkan dengan total di file asli sebelum
+memakai angkanya. Sheet `Validasi` juga ikut di hasil export Excel.
 
-## Menambah/mengubah alias nama cabang
-Edit `ALIAS_CABANG` di `logic.py`. Kunci ditulis huruf kecil tanpa spasi (mis. `"telukjambe": "KARAWANG"`).
-
-## Catatan
-Budget purchasing berbasis harga beli, jadi dasar perbandingan default adalah **Qty × Harga Beli**.
-Bila file stok sudah menyediakan kolom nilai persediaan, pilih opsi *Kolom nilai stok langsung* di sidebar.
+## Alias nama cabang
+Edit `ALIAS_CABANG` di `logic.py` (huruf kecil tanpa spasi), mis. `"telukjambe": "KARAWANG"`.

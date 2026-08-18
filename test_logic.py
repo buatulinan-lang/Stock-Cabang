@@ -30,14 +30,14 @@ print("angka:", list(logic.ke_angka(s)))
 
 # kategori
 for v, exp in [("HANDPHONE","Handphone"),("Sparepart LCD","Sparepart"),("Aksesoris HP","Aksesoris"),
-               ("LAPTOP / NOTEBOOK","Laptop"),("Voucher Pulsa","(belum dipetakan)")]:
+               ("LAPTOP / NOTEBOOK","Laptop"),("Voucher Pulsa","Lainnya"),("ELEKTRONIK","Lainnya"),("KARTU PERDANA","Lainnya")]:
     got = logic.tebak_kategori(v)
     assert got == exp, (v, got, exp)
 print("kategori OK")
 
 # ---- generate dummy export 18 cabang, dengan header nyampah 3 baris ----
 random.seed(7)
-kat_asli = ["HANDPHONE","LAPTOP","SPAREPART LCD","AKSESORIS CASING","SPAREPART BATERAI"]
+kat_asli = ["HANDPHONE","LAPTOP","SPAREPART","AKSESORIS","ELEKTRONIK"]
 frames = []
 for c in cab:
     rows = []
@@ -61,19 +61,20 @@ for c in cab:
     t["Kategori"] = t["KategoriAsli"].map(logic.tebak_kategori)
     frames.append(t)
 stok = pd.concat(frames, ignore_index=True)
-print("header auto-detect OK; baris stok:", len(stok), "| belum dipetakan:", (stok["Kategori"]=="(belum dipetakan)").sum())
+print("header auto-detect OK; baris stok:", len(stok), "| Lainnya:", (stok["Kategori"]==logic.LAINNYA).sum())
 
-sv = stok[stok["Kategori"].isin(logic.KATEGORI_BUDGET)]
+sv = stok[stok["Kategori"].isin(logic.KATEGORI_BUDGET + [logic.LAINNYA])]
 hasil = logic.bandingkan(sv, bdf, cab, toleransi=5)
-assert len(hasil) == 72, len(hasil)
+assert len(hasil) == 90, len(hasil)  # 18 cabang x (4 kategori + Lainnya)
 assert abs(hasil["Budget"].sum() - 6_919_262_000) < 1
+assert abs(hasil["NilaiStok"].sum() - sv["NilaiStok"].sum()) < 1, "total nilai stok harus utuh"
 assert set(hasil["Status"]) <= {"Over","Kurang","Sesuai","Tanpa budget"}
 print(hasil["Status"].value_counts().to_dict())
 print(hasil.head(6).to_string(index=False))
 
 # cabang tanpa data stok -> harus muncul sebagai Kurang, nilai 0
 h2 = logic.bandingkan(sv[sv["Cabang"]!="CONDET"], bdf, cab, 5)
-row = h2[h2["Cabang"]=="CONDET"]
+row = h2[(h2["Cabang"]=="CONDET") & (h2["Kategori"].isin(logic.KATEGORI_BUDGET))]
 assert (row["NilaiStok"]==0).all() and (row["Status"]=="Kurang").all()
 print("cabang tanpa data OK")
 print("\nSEMUA TES LULUS")
